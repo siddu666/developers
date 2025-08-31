@@ -1,0 +1,34 @@
+version: "3.9"
+services:
+  api:
+    build:
+      context: .
+      dockerfile: ExchangeRateUpdater.Api/Dockerfile
+    image: exchange-rate-updater-api:latest
+    ports:
+      - "5001:8080"
+    environment:
+      - ASPNETCORE_URLS=http://+:8080
+      - ASPNETCORE_ENVIRONMENT=Development
+      - Redis__Enabled=true
+      - Redis__Configuration=redis:6379
+      - ApiKey__Enabled=false
+    depends_on:
+      - redis
+
+  console:
+    build:
+      context: .
+      dockerfile: ExchangeRateUpdater.Console/Dockerfile
+    image: exchange-rate-updater-console:latest
+    entrypoint: ["dotnet", "ExchangeRateUpdater.Console.dll"]
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+
+

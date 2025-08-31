@@ -1,0 +1,23 @@
+# Genelated files
+bin/
+obj/
+
+# Visual Studio Code
+.vscode/
+
+# Git
+.git/
+
+# NuGet packages
+*.nupkg
+.vs/
+.idea/
+
+# User-specific files
+*.user
+*.suo
+*.bak
+*.log
+
+# ASP.NET Core
+appsettings.Development.json

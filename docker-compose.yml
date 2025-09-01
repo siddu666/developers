@@ -1,34 +1,26 @@
-version: "3.9"
+# Base configuration - common settings for both environments
+# Use with docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+
 services:
   api:
     build:
       context: .
-      dockerfile: ExchangeRateUpdater.Api/Dockerfile
-    image: exchange-rate-updater-api:latest
-    ports:
-      - "5001:8080"
-    environment:
-      - ASPNETCORE_URLS=http://+:8080
-      - ASPNETCORE_ENVIRONMENT=Development
-      - Redis__Enabled=true
-      - Redis__Configuration=redis:6379
-      - ApiKey__Enabled=false
-    depends_on:
-      - redis
+      dockerfile: ExchangeRateProvider.Api/Dockerfile
+    networks:
+      - exchange-rate-network
 
   console:
     build:
       context: .
-      dockerfile: ExchangeRateUpdater.Console/Dockerfile
-    image: exchange-rate-updater-console:latest
-    entrypoint: ["dotnet", "ExchangeRateUpdater.Console.dll"]
-    depends_on:
-      - redis
+      dockerfile: ExchangeRateProvider.Console/Dockerfile
+    networks:
+      - exchange-rate-network
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    command: ["redis-server", "--appendonly", "yes"]
+    networks:
+      - exchange-rate-network
 
-
+networks:
+  exchange-rate-network:
+    driver: bridge

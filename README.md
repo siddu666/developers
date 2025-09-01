@@ -1,108 +1,344 @@
-# CNB Exchange Rate Updater Solution
+# Exchange Rate Provider
 
-This solution provides a robust and production-grade system for fetching, caching, and exposing exchange rates from the Czech National Bank (CNB). It is built with .NET and adheres to Clean Architecture principles, ensuring scalability, maintainability, and testability.
+A .NET 8 service for fetching Czech National Bank (CNB) exchange rates with intelligent caching and monitoring. This service provides reliable, real-time exchange rate data with enterprise-grade features like distributed caching, circuit breakers, health monitoring, and comprehensive testing.
 
-## Architecture Overview
+## Table of Contents
 
-The solution is structured into multiple projects, following Clean Architecture to separate concerns:
+- [Prerequisites](#prerequisites)
+- [Architecture](#architecture)
+- [Features](#features)
+- [Quick Start](#quick-start)
+- [Configuration](#configuration)
+- [API Reference](#api-reference)
+- [Console Application](#console-application)
+- [Troubleshooting](#troubleshooting)
+- [Testing](#testing)
+- [Docker Deployment](#docker-deployment)
+- [Adding New Providers](#adding-new-providers)
+- [Production Features](#production-features)
 
-*   **`ExchangeRateUpdater.Domain`**: Defines core domain models (`Currency`, `ExchangeRate`) and interfaces (`IExchangeRateProvider`). This project has no external dependencies.
-*   **`ExchangeRateUpdater.Application`**: Contains application-specific business logic, including queries and handlers (using MediatR), and orchestrates operations. It depends on `ExchangeRateUpdater.Domain` and `ExchangeRateUpdater.Infrastructure`.
-*   **`ExchangeRateUpdater.Infrastructure`**: Implements concrete services and external integrations, such as the `CnbExchangeRateProvider` for fetching data from CNB, and caching mechanisms. It depends on `ExchangeRateUpdater.Domain`. Resilience policies (retry, circuit breaker) using Polly are also configured here.
-*   **`ExchangeRateUpdater.Console`**: A console application that serves as an entry point to demonstrate fetching and displaying exchange rates. It depends on `ExchangeRateUpdater.Application`.
-*   **`ExchangeRateUpdater.Api`**: An ASP.NET Core Web API project that exposes the exchange rates via a REST endpoint with Swagger documentation. It depends on `ExchangeRateUpdater.Application`.
-*   **`ExchangeRateUpdater.Tests`**: (To be implemented) A project for unit and integration tests.
+## Prerequisites
 
-## Data Source
+- .NET 8.0 SDK or later
+- (Optional) Redis for distributed caching
+- (Optional) Docker and Docker Compose for containerized deployment
 
-The exchange rate data is sourced from the official CNB TEXT feed:
-`https://www.cnb.cz/en/financial-markets/foreign-exchange-market/central-bank-exchange-rate-fixing/central-bank-exchange-rate-fixing/daily.txt`
+## Architecture
+
+This project follows **Clean Architecture** principles with clear separation of concerns:
+
+- **Domain Layer** (`ExchangeRateProvider.Domain`): Core business entities, value objects, and interfaces
+  - `Currency` and `ExchangeRate` entities with validation
+  - `IExchangeRateProvider` interface for provider abstraction
+  - `IProviderRegistry` for managing multiple providers
+
+- **Application Layer** (`ExchangeRateProvider.Application`): Business logic and use cases
+  - MediatR-based command/query pattern
+  - `GetExchangeRatesQuery` and handler for rate retrieval
+
+- **Infrastructure Layer** (`ExchangeRateProvider.Infrastructure`): External concerns and implementations
+  - `CnbExchangeRateProvider`: CNB API integration
+  - `CnbCacheStrategy`: Intelligent caching based on CNB publication schedule
+  - `DistributedCachingExchangeRateProvider`: Redis-based caching decorator
+  - Polly policies for resilience (retry, circuit breaker)
+
+- **API Layer** (`ExchangeRateProvider.Api`): RESTful web API
+  - ASP.NET Core controllers with validation
+  - Swagger/OpenAPI documentation
+  - Health checks and Prometheus metrics
+
+- **Console Layer** (`ExchangeRateProvider.Console`): Command-line interface
+  - Simple console app for testing and batch operations
 
 ## Features
 
-*   **Clean Architecture**: Segregated concerns for better maintainability and testability.
-*   **Dependency Injection**: Services are registered and resolved using the built-in .NET Core DI container.
-*   **Robust Error Handling**: Comprehensive `try-catch` blocks for network issues, TEXT parsing errors, and invalid data.
-*   **Resilience Policies**: Implemented using Polly for HTTP client retries and circuit breaking to handle transient faults and prevent cascading failures.
-*   **Distributed Caching**: Exchange rates are cached to reduce external API calls, improve performance, and provide resilience.
-*   **Structured Logging**: Integration of `Microsoft.Extensions.Logging` for configurable and detailed logging.
-*   **Command Line Interface**: A console application for direct execution.
-*   **RESTful API**: An ASP.NET Core API with Swagger UI for easy interaction and documentation.
+- **Real-time CNB Exchange Rates**: Fetches official rates from Czech National Bank API
+- **Intelligent Caching Strategy**:
+  - 5 minutes during CNB publication window (2:31-3:31 PM Prague time)
+  - 1 hour on weekdays outside publication window
+  - 12 hours on weekends (no new data published)
+- **Distributed Caching**: Optional Redis support for multi-instance deployments
+- **Resilience**: Circuit breaker and retry policies using Polly
+- **Health Monitoring**: Comprehensive health checks for CNB API and Redis
+- **Metrics**: Prometheus metrics for monitoring and alerting
+- **Rate Limiting**: 100 requests per minute per IP address
+- **Structured Logging**: Serilog integration with request/response logging
+- **Comprehensive Testing**: 45+ unit and integration tests
+- **Docker Support**: Multi-stage Dockerfiles for development and production
 
-## How to Build and Run
+## Quick Start
 
-**Prerequisites:**
-*   .NET SDK 8.0 or later
+### Running the API
 
-1.  **Navigate to the solution root directory:**
-    ```bash
-    cd CnbExchangeRateProvider
-    ```
+1. **Clone and navigate to the project**:
+   ```bash
+   cd /path/to/CnbExchangeRateProvider
+   ```
 
-2.  **Add project references and install NuGet packages for all projects:**
-    You will need to manually add the NuGet packages and project references as described in the individual project sections above.
-    For example, to add `ExchangeRateUpdater.Console` to the solution and add its project references:
-    ```bash
-    dotnet new sln -n CnbExchangeRateProvider
-    dotnet new console -n ExchangeRateUpdater.Console
-    mv ExchangeRateUpdater.Console/CnbExchangeRateProviderApp.csproj ExchangeRateUpdater.Console/ExchangeRateUpdater.Console.csproj # If you started with a default project
-    dotnet sln add ExchangeRateUpdater.Console/ExchangeRateUpdater.Console.csproj
-    dotnet add ExchangeRateUpdater.Console/ExchangeRateUpdater.Console.csproj reference ExchangeRateUpdater.Application/ExchangeRateUpdater.Application.csproj
-    # ... and similarly for all other projects and their references.
-    ```
+2. **Run the API**:
+   ```bash
+   dotnet run --project ExchangeRateProvider.Api
+   ```
 
-3.  **Restore dependencies for the entire solution:**
-    ```bash
-    dotnet restore
-    ```
+3. **Test the endpoint**:
+   ```bash
+   curl "http://localhost:5001/api/exchange-rates?currencyCodes=USD,EUR"
+   ```
 
-4.  **Build the entire solution:**
-    ```bash
-    dotnet build
-    ```
+### Running the Console App
 
-### Running the Console Application
+```bash
+dotnet run --project ExchangeRateProvider.Console
+```
 
-1.  **Navigate to the console project directory:**
-    ```bash
-    cd ExchangeRateUpdater.Console
-    ```
-2.  **Run the application:**
-    ```bash
-    dotnet run
-    ```
-    The application will output the obtained exchange rates to the console.
+### Running Tests
 
-### Running the API Application
+```bash
+dotnet test
+```
 
-1.  **Navigate to the API project directory:**
-    ```bash
-    cd ExchangeRateUpdater.Api
-    ```
-2.  **Run the application:**
-    ```bash
-    dotnet run
-    ```
-    The API will start (typically on `http://localhost:5000` or `https://localhost:5001`).
-    You can access the Swagger UI at `http://localhost:<port>/swagger` (e.g., `http://localhost:5000/swagger`).
+## Configuration
 
-## Production-Grade Considerations
+The application uses `appsettings.json` for configuration. Key settings:
 
-The solution incorporates several production-grade considerations:
+```json
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning"
+    }
+  },
+  "ExchangeRateProvider": {
+    "CnbExchangeRateUrl": "https://api.cnb.cz",
+    "CacheExpirationMinutes": 60,
+    "TimeoutSeconds": 30,
+    "MaxCurrencies": 20
+  },
+  "Redis": {
+    "Enabled": true,
+    "Configuration": "localhost:6379",
+    "InstanceName": "ExchangeRates"
+  },
+  "CnbCacheStrategy": {
+    "PublicationWindowMinutes": 5,
+    "WeekdayHours": 1,
+    "WeekendHours": 12
+  }
+}
+```
 
-*   **Error Handling**: Detailed logging of exceptions with specific types (`HttpRequestException`, `XmlException`, `ApplicationException`) and general `Exception` catch-all.
-*   **Resilience**: HTTP client with Polly policies for retries and circuit breakers, making it robust against transient network issues or API unavailability.
-*   **Configuration**: Externalized settings (`CnbExchangeRateUrl`, `CacheExpirationMinutes`, `LogLevel`) in `appsettings.json` for easy management across environments.
-*   **Logging**: Utilizes `Microsoft.Extensions.Logging` with console and debug providers, easily extendable to structured logging (e.g., Serilog, NLog) and various sinks (file, database, cloud).
-*   **Caching**: Distributed caching with configurable expiration, reducing load on the external CNB API and speeding up responses.
-*   **Dependency Injection**: Promotes loose coupling and testability by injecting dependencies (e.g., `HttpClient`, `ILogger`, `IMemoryCache`).
+### Environment Variables
 
-## Future Enhancements
+Override settings using environment variables with double underscores:
+```bash
+ExchangeRateProvider__CnbExchangeRateUrl=https://api.cnb.cz
+Redis__Enabled=true
+Redis__Configuration=redis:6379
+```
 
-*   **Unit and Integration Testing**: Implement comprehensive tests for all layers of the application.
-*   **Monitoring**: Add health checks, metrics, and distributed tracing for better operational visibility.
-*   **API Key/Authentication**: If the CNB API required it, implement secure authentication.
-*   **Deployment**: Containerize applications using Docker for consistent and scalable deployments.
-*   **Multiple Providers**: Extend the system to fetch exchange rates from other national banks or financial data providers.
-*   **Date-Specific Rates**: Enhance providers to fetch historical or date-specific exchange rates if supported by the source.
-*   **Custom Currency Handling**: Allow the client to specify the target currency (currently fixed to CZK).
+## API Reference
+
+### GET /api/exchange-rates
+
+Retrieves exchange rates for specified currencies against CZK.
+
+**Parameters:**
+- `currencyCodes` (required): Comma-separated ISO 4217 currency codes (e.g., `USD,EUR,GBP`)
+
+**Example Request:**
+```bash
+curl "http://localhost:5001/api/exchange-rates?currencyCodes=USD,EUR"
+```
+
+**Response:**
+```json
+[
+  {
+    "sourceCurrency": { "code": "USD" },
+    "targetCurrency": { "code": "CZK" },
+    "value": 22.5,
+    "timestamp": "2024-01-15T14:30:00Z"
+  },
+  {
+    "sourceCurrency": { "code": "EUR" },
+    "targetCurrency": { "code": "CZK" },
+    "value": 24.2,
+    "timestamp": "2024-01-15T14:30:00Z"
+  }
+]
+```
+
+**Error Responses:**
+- `400 Bad Request`: Invalid currency codes or too many currencies (max 20)
+- `500 Internal Server Error`: Service unavailable or CNB API error
+
+### Monitoring Endpoints
+
+- `GET /health` - Health status (CNB API and Redis connectivity)
+- `GET /metrics` - Prometheus metrics
+- `GET /swagger` - API documentation
+
+## Console Application
+
+The console app demonstrates programmatic access to exchange rates:
+
+```bash
+dotnet run --project ExchangeRateProvider.Console
+```
+
+It fetches rates for a predefined set of currencies and displays them in the console.
+
+## Testing
+
+The project includes comprehensive test coverage with **45 test methods**:
+
+```bash
+# Run all tests
+dotnet test
+
+# Run with coverage
+dotnet test --collect:"XPlat Code Coverage"
+```
+
+**Test Categories:**
+- **Unit Tests**: Business logic, validation, caching strategies
+- **Integration Tests**: API endpoints, CNB API interaction
+- **Infrastructure Tests**: Service registration, configuration
+- **Provider Tests**: Exchange rate providers with mocking
+
+
+## Troubleshooting
+
+### Common Issues
+
+**API returns 500 error:**
+- Check CNB API availability: `curl https://api.cnb.cz/cnbapi/exrates/daily`
+- Verify configuration in `appsettings.json`
+- Check logs for detailed error messages
+
+**Redis connection failed:**
+- Ensure Redis is running: `docker ps | grep redis`
+- Check Redis configuration in environment variables
+- Verify network connectivity between containers
+
+**Rate limiting triggered:**
+- Reduce request frequency or implement exponential backoff
+- Check rate limit configuration in `Program.cs`
+
+### Logs
+
+Logs are written to console and can be mounted in Docker:
+```bash
+# View logs
+docker-compose logs api
+
+# Follow logs
+docker-compose logs -f api
+```
+
+### Health Checks
+
+```bash
+# Check API health
+curl http://localhost:5001/health
+
+# Check with Docker
+docker-compose exec api curl http://localhost:8080/health
+```
+
+## Docker Deployment
+
+### Development
+
+```bash
+# Start development environment with Redis
+docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+# API available at http://localhost:5001
+# Redis available at localhost:6379
+```
+
+### Production
+
+```bash
+# Build and start production environment
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+# API available at http://localhost:80
+```
+
+### Manual Docker Build
+
+```bash
+# Build API image
+docker build -f ExchangeRateProvider.Api/Dockerfile -t exchange-rate-api .
+
+# Run with Redis
+docker run -d --name redis redis:7-alpine
+docker run -p 5001:8080 --link redis:redis -e Redis__Configuration=redis:6379 exchange-rate-api
+```
+
+## Adding New Providers
+
+To add a new exchange rate provider:
+
+1. **Implement the interface**:
+```csharp
+public class NewProvider : IExchangeRateProvider
+{
+    public string Name => "NewProvider";
+    public int Priority => 50; // Lower than CNB (100)
+
+    public bool CanHandle(IEnumerable<Currency> currencies)
+    {
+        // Return true if this provider can handle the currencies
+        return true;
+    }
+
+    public async Task<IReadOnlyCollection<ExchangeRate>> GetExchangeRatesAsync(
+        IEnumerable<Currency> currencies,
+        CancellationToken cancellationToken = default)
+    {
+        // Your implementation here
+        // Return rates with CZK as target currency
+    }
+}
+```
+
+2. **Register the provider**:
+```csharp
+// In Infrastructure/ServiceCollectionExtensions.cs
+services.AddScoped<NewProvider>();
+services.AddScoped<IExchangeRateProvider, NewProvider>(provider =>
+{
+    var newProvider = provider.GetRequiredService<NewProvider>();
+    // Add caching if needed
+    return newProvider;
+});
+```
+
+## Production Features
+
+### Implemented Features
+- ✅ **Rate Limiting**: 100 requests/minute per IP using ASP.NET Core Rate Limiting
+- ✅ **Health Checks**: CNB API and Redis connectivity monitoring
+- ✅ **Prometheus Metrics**: Request counts, response times, cache hit rates
+- ✅ **Structured Logging**: Request/response logging with correlation IDs
+- ✅ **Swagger/OpenAPI**: Interactive API documentation
+- ✅ **Circuit Breaker**: Automatic failure detection and recovery using Polly
+- ✅ **Retry Policies**: Exponential backoff for transient failures
+- ✅ **Distributed Caching**: Redis support for multi-instance deployments
+- ✅ **Docker Support**: Production-ready containerization
+
+### Security Considerations
+- Input validation for currency codes
+- Rate limiting to prevent abuse
+- HTTPS redirection in production
+- Secure defaults for Redis configuration
+
+### Monitoring and Observability
+- Health endpoints for load balancer checks
+- Prometheus metrics for alerting
+- Structured logging for debugging
+- Request tracing and correlation
